@@ -67,6 +67,10 @@ PACKAGES=(
   # Compiler cache: the bashrc prepends /usr/lib64/ccache to PATH (and the module
   # system keeps it at the front), so install ccache to make that directory exist.
   ccache
+
+  # /usr/bin/script (terminal session recorder) -- exec'd by our bin/script
+  # wrapper. Fedora ships it in util-linux-script, split out of util-linux.
+  util-linux-script
 )
 
 install_packages() {
