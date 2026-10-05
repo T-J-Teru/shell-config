@@ -321,7 +321,7 @@ function addpath
 }
 
 addpath --quiet $HOME/bin
-addpath /usr/lib64/ccache
+addpath --quiet /usr/lib64/ccache   # only if ccache is installed
 
 function rmpath () {
     local target=$1

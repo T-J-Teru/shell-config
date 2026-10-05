@@ -57,6 +57,10 @@ PACKAGES=(
   # less provides /usr/bin/lesspipe.sh (the bashrc's LESSOPEN) and works with
   # dotfiles/lessfilter; tree + curl are used by aliases / the weather() helper.
   less tree curl
+
+  # Compiler cache: the bashrc prepends /usr/lib64/ccache to PATH (and the module
+  # system keeps it at the front), so install ccache to make that directory exist.
+  ccache
 )
 
 install_packages() {
