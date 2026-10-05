@@ -96,6 +96,9 @@ create_symlinks() {
   # before the project switcher). We deliberately do NOT touch ~/.bashrc itself.
   link "$REPO/dotfiles/bashrc.d/10-bashrc.sh"       "$HOME/.bashrc.d/10-bashrc.sh"
   link "$REPO/dotfiles/bashrc.d/20-apb-projects.sh" "$HOME/.bashrc.d/20-apb-projects.sh"
+  # Rust/Cargo env; 99- prefix so it (and the machine-local 99-claude-setup.sh)
+  # source after the main config. Order between the 99-* files doesn't matter.
+  link "$REPO/dotfiles/bashrc.d/99-cargo-setup.sh"  "$HOME/.bashrc.d/99-cargo-setup.sh"
 
   # tmux + less helpers.
   link "$REPO/dotfiles/tmux.conf"  "$HOME/.tmux.conf"

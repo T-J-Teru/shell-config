@@ -814,4 +814,3 @@ function _git_fstat () {
 # Local Variables:
 # mode: sh
 # End:
-[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
