@@ -277,10 +277,8 @@ _pp_precmd() {
 
   [ -n "${HISTFILE:-}" ] && history -a
 
-  if [ -z "${WINDOW_TITLE:-}" ]; then
-    case "$TERM" in xterm*|screen*|tmux*)
-      printf '\e]0;%s@%s: %s\a' "$USER" "${SHORT_HOSTNAME:-${HOSTNAME%%.*}}" "${PWD/#$HOME/\~}" ;;
-    esac
+  if [ -z "${WINDOW_TITLE:-}" ] && _term_supports_title; then
+    printf '\e]0;%s@%s: %s\a' "$USER" "${SHORT_HOSTNAME:-${HOSTNAME%%.*}}" "${PWD/#$HOME/\~}"
   fi
 }
 
@@ -296,25 +294,33 @@ fi
 
 WINDOW_TITLE=""
 
+# Does the current terminal understand the OSC window-title escape? Used by both
+# the prompt's auto-title (in _pp_precmd) and xtitle below. Covers xterm/screen/
+# tmux and alacritty (which doesn't match the old xterm*/screen* patterns).
+_term_supports_title() {
+  case "$TERM" in
+      xterm*|screen*|tmux*|alacritty*) return 0 ;;
+      *) return 1 ;;
+  esac
+}
+
 # Allow the window title to be changed. Either manually to a
 # fixed string, or change everytime we switch directories.
 function xtitle
 {
-  case $TERM in
-      xterm*|screen*|tmux*)
-          if [ "$1" == "" ]
-          then
-	      WINDOW_TITLE=""
-          else
-              echo -ne "\033]0;$1\007"
-	      WINDOW_TITLE=$1
-          fi
-          ;;
-      *)
-          echo "Unable to change window title"
-          return 1
-          ;;
-  esac
+  if ! _term_supports_title
+  then
+      echo "Unable to change window title"
+      return 1
+  fi
+
+  if [ "$1" == "" ]
+  then
+      WINDOW_TITLE=""
+  else
+      echo -ne "\033]0;$1\007"
+      WINDOW_TITLE=$1
+  fi
 }
 
 # Change to default, auto-updating, window title.
