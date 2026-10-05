@@ -176,58 +176,132 @@ TEXT_BOLD="\033[1m"
 #     Setup the prompt     #
 #==========================#
 
-# Prompt is now BOLD & BLUE
-PROMPT_COLOUR="\033[1;34m"
+# A two-line "rule" prompt. Line 1 is a horizontal rule with right-aligned info
+# (path, git branch/state, last exit code, last command's duration, a clock);
+# line 2 is where you type. The input char is green on success / red on failure,
+# with a ⚙N badge for background jobs, a loud "⏺ REC" badge while recording with
+# `script` (IN_SCRIPT), and a "LOCKED" badge while the directory is locked
+# (lockdir/unlockdir). Command timing uses bash-preexec; git details come from
+# git-prompt.sh -- both shipped by Fedora packages (see install.sh).
 
-SCRIPT_PROMPT=""
-if [ ! -z "$IN_SCRIPT" ]
-then
-  SCRIPT_PROMPT="<\[${COLOUR_RED}\]script\[${COLOUR_RESET}\]>"
-fi
+# git branch + dirty/staged/stash/untracked/upstream markers for __git_ps1.
+export GIT_PS1_SHOWDIRTYSTATE=1 GIT_PS1_SHOWSTASHSTATE=1 \
+       GIT_PS1_SHOWUNTRACKEDFILES=1 GIT_PS1_SHOWUPSTREAM=auto
+[ -f /usr/share/git-core/contrib/completion/git-prompt.sh ] && \
+    . /usr/share/git-core/contrib/completion/git-prompt.sh
 
-LOCK_DIR_PROMPT=""
+# preexec/precmd hooks, used for the command timer. See "bash-preexec" in install.sh.
+[ -f /usr/libexec/bash-preexec/bash-preexec.sh ] && \
+    . /usr/libexec/bash-preexec/bash-preexec.sh
 
-# Load in special git prompt support (git-prompt.sh ships with git-core).
-if [ -f /usr/share/git-core/contrib/completion/git-prompt.sh ]; then
-    source /usr/share/git-core/contrib/completion/git-prompt.sh
-fi
+# Prompt colours (256-colour); _pp_-prefixed so they don't clash with COLOUR_*.
+_pp_reset=$'\e[0m'
+_pp_dim=$'\e[38;5;240m'
+_pp_path=$'\e[1;38;5;39m'
+_pp_git=$'\e[38;5;214m'
+_pp_time=$'\e[38;5;244m'
+_pp_dur=$'\e[38;5;141m'
+_pp_err=$'\e[1;38;5;203m'
+_pp_ok=$'\e[1;38;5;114m'
+_pp_rec=$'\e[1;97;48;5;196m'     # white on red    -- "recording" badge
+_pp_lock=$'\e[1;97;48;5;208m'    # white on orange -- "locked" badge
+_pp_char=${_pp_char:-❯}
+_pp_git_icon=${_pp_git_icon:-⎇}
 
-function set_prompt
-{
-    PS1="${LOCK_DIR_PROMPT}${SCRIPT_PROMPT}[\[${COLOUR_GREEN}\]\h\[${COLOUR_RESET}\]]\[${PROMPT_COLOUR}\]\W\[${COLOUR_RESET}\]"'$(__git_ps1 " (%s)")> '
-    PS2="\[${PROMPT_COLOUR}\]>\[${COLOUR_RESET}\] "
+# Elapsed time between $1 (an EPOCHREALTIME stamp) and now; nothing for fast cmds.
+_pp_duration() {
+  local start="$1"; [ -n "$start" ] || return 0
+  local us=$(( 10#${EPOCHREALTIME/[.,]/} - 10#${start/[.,]/} ))
+  (( us < 0 )) && return 0
+  local ms=$(( us / 1000 )); (( ms < 50 )) && return 0
+  if   (( ms < 1000 )); then printf '%dms' "$ms"
+  elif (( ms < 60000 )); then printf '%d.%01ds' $(( ms/1000 )) $(( (ms%1000)/100 ))
+  else local s=$(( ms/1000 )); printf '%dm%02ds' $(( s/60 )) $(( s%60 )); fi
 }
 
-set_prompt
+# join SEP ITEM...  -> ITEMs joined by SEP
+_pp_join() { local s="$1"; shift || return; local out="${1-}"; shift; local x
+             for x in "$@"; do out+="$s$x"; done; printf '%s' "$out"; }
+
+# Shorten a path to at most $2 columns (…/tail, hard-truncating one very long
+# component) so a long $PWD never wraps the prompt.
+_pp_fit_path() {
+  local p="$1" budget="$2" tail rest
+  (( budget < 6 )) && budget=6
+  (( ${#p} <= budget )) && { printf '%s' "$p"; return; }
+  tail="$p"
+  while rest="${tail#*/}"; [ "$rest" != "$tail" ]; do
+    tail="$rest"; (( ${#tail} + 2 <= budget )) && { printf '…/%s' "$tail"; return; }
+  done
+  printf '…%s' "${p: -$(( budget - 1 ))}"
+}
+
+# preexec: stamp when a command starts (bash-preexec fires once per command,
+# skipping empty input and completion).
+_pp_preexec() { _pp_start=$EPOCHREALTIME; }
+
+# precmd: build the prompt before it's drawn (bash-preexec restores $? for us).
+_pp_precmd() {
+  local ec=$?
+  local dur=''
+  if [ -n "${_pp_start:-}" ]; then dur="$(_pp_duration "$_pp_start")"; _pp_start=''; fi
+
+  # non-path segments first, so we can size the path to avoid wrapping
+  local -a oC=() oP=()
+  local g=''; command -v __git_ps1 >/dev/null 2>&1 && g="$(__git_ps1 '%s')"
+  [ -n "$g" ] && { oC+=("\[$_pp_git\]$_pp_git_icon $g\[$_pp_reset\]"); oP+=("$_pp_git_icon $g"); }
+  (( ec != 0 )) && { oC+=("\[$_pp_err\]✘ $ec\[$_pp_reset\]"); oP+=("✘ $ec"); }
+  [ -n "$dur" ] && { oC+=("\[$_pp_dur\]⏱ $dur\[$_pp_reset\]"); oP+=("⏱ $dur"); }
+  local clock; clock="$(date +%H:%M)"
+  oC+=("\[$_pp_time\]$clock\[$_pp_reset\]"); oP+=("$clock")
+
+  local others_w=0 s; for s in "${oP[@]}"; do others_w=$(( others_w + ${#s} )); done
+  local budget=$(( ${COLUMNS:-80} - 3 - others_w - 3 * ${#oP[@]} - 2 ))
+  local p; p="$(_pp_fit_path "${PWD/#$HOME/\~}" "$budget")"
+
+  local -a C=("\[$_pp_path\]$p\[$_pp_reset\]") P=("$p"); C+=("${oC[@]}"); P+=("${oP[@]}")
+  local lineC; lineC="$(_pp_join " \[$_pp_dim\]·\[$_pp_reset\] " "${C[@]}")"
+  local lineP; lineP="$(_pp_join " · " "${P[@]}")"
+  local fill=$(( ${COLUMNS:-80} - ${#lineP} - 1 )) bar=''
+  (( fill > 0 )) && bar="$(printf '─%.0s' $(seq "$fill"))"
+
+  local cc="$_pp_ok"; (( ec != 0 )) && cc="$_pp_err"
+  local nj; nj=$(jobs -p 2>/dev/null | wc -l)
+  local badges=''
+  [ -n "${IN_SCRIPT:-}" ]       && badges+="\[$_pp_rec\] ⏺ REC \[$_pp_reset\] "
+  [ -n "${LOCK_DIR_PROMPT:-}" ] && badges+="\[$_pp_lock\] LOCKED \[$_pp_reset\] "
+  (( nj > 0 ))                  && badges+="\[$_pp_dur\]⚙$nj\[$_pp_reset\] "
+
+  PS1="\[$_pp_dim\]$bar\[$_pp_reset\] $lineC"$'\n'"$badges\[$cc\]$_pp_char\[$_pp_reset\] "
+  PS2="\[$_pp_dim\]  ·\[$_pp_reset\] "
+
+  [ -n "${HISTFILE:-}" ] && history -a
+
+  if [ -z "${WINDOW_TITLE:-}" ]; then
+    case "$TERM" in xterm*|screen*|tmux*)
+      printf '\e]0;%s@%s: %s\a' "$USER" "${SHORT_HOSTNAME:-${HOSTNAME%%.*}}" "${PWD/#$HOME/\~}" ;;
+    esac
+  fi
+}
+
+# Register the hooks with bash-preexec; fall back to PROMPT_COMMAND (no command
+# timer) if bash-preexec isn't installed.
+_pp_contains() { local x="$1"; shift; local e; for e in "$@"; do [ "$e" = "$x" ] && return 0; done; return 1; }
+if command -v __bp_install_after_session_init >/dev/null 2>&1; then
+  _pp_contains _pp_preexec "${preexec_functions[@]:-}" || preexec_functions+=(_pp_preexec)
+  _pp_contains _pp_precmd  "${precmd_functions[@]:-}"  || precmd_functions+=(_pp_precmd)
+else
+  PROMPT_COMMAND=_pp_precmd
+fi
 
 WINDOW_TITLE=""
-
-function prompt_command
-{
-  if [ -z "${WINDOW_TITLE}" ]
-  then
-      case $TERM in
-          eterm*)
-          ;;
-          xterm*|screen)
-              echo "-ne" "\033]0;`whoami`@${SHORT_HOSTNAME} ($PWD)\007"
-              ;;
-          *)
-              ;;
-      esac
-  fi
-
-  # Flush the history out.
-  history -a
-}
-PROMPT_COMMAND=prompt_command
 
 # Allow the window title to be changed. Either manually to a
 # fixed string, or change everytime we switch directories.
 function xtitle
 {
   case $TERM in
-      xterm*|screen)
+      xterm*|screen*|tmux*)
           if [ "$1" == "" ]
           then
 	      WINDOW_TITLE=""
@@ -599,17 +673,13 @@ alias cd='custom-cd'
 function lockdir()
 {
   alias cd='dir-locked';
-
-  LOCK_DIR_PROMPT="<\[${COLOUR_RED}\]Locked\[${COLOUR_RESET}\]>"
-  set_prompt
+  LOCK_DIR_PROMPT=1        # shown as a LOCKED badge by the prompt (see _pp_precmd)
 }
 
 function unlockdir()
 {
   alias cd='custom-cd';
-
   LOCK_DIR_PROMPT=""
-  set_prompt
 }
 
 #=================================#
