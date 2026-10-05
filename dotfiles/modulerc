@@ -1,0 +1,15 @@
+#%Module1.0
+
+# Setup $HOME from the environment
+eval set [ array get env HOME ]
+
+module use /etc/modulefiles /usr/share/modulefiles
+
+# Add extra module directory onto the search path.
+if { [ info exists env(PACKAGE_MODULE_ROOT) ] } then {
+    eval set [ array get env PACKAGE_MODULE_ROOT ]
+    module use ${PACKAGE_MODULE_ROOT}/modules
+} elseif { [ file isdirectory "$HOME/.software/modules" ] } {
+    module use $HOME/.software/modules
+}
+

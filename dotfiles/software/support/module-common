@@ -1,0 +1,209 @@
+#%Module1.0
+
+# My Module System
+# ================
+#
+# Tools are installed into:
+#   <prefix>/packages/package-name/version-number/
+# And the corresponding module file will be:
+#   <prefix>/modules/package-name/version-number
+#
+# Each module file sources this file, and then calls the
+# basic_package_setup proc.
+#
+# In this proc we figure out some basics, like package-name and
+# version-number, then we check for the existence of two files, in
+# this order:
+#
+#   <prefix>/packages/package-name/version-number/.modulerc
+#   <prefix>/packages/package-name/.modulerc
+#
+# The first of these files that is found is sourced.  Within this file
+# the following variables are defined:
+#
+#   pkg_dir := <prefix>/packages/package-name/version-number/
+#   ver := version-number
+#   pkg := package-name
+#
+# It is fine if none of the .modulerc files exist, these files are
+# optional.
+#
+# The next step is that a long list of sub-directories within pkg_dir
+# are checked for, if these exist then these are added to the various
+# environment variables using calls to my-prepend-path.
+#
+# Finally there's a few package specific steps, though in the future
+# these should be added to the relevant packages .modulerc file.
+#
+# The current main job of the per-package .modulerc file is to
+# blacklist directories from being prepended to the path with
+# my-prepend-path, this is done by calling my-blacklist-path.
+#
+# If you have both a package-name/version-number/.modulerc and a
+# package-name/.modulerc file, and want them both sorced, then the
+# former must source the latter.  This gives the option of not
+# sourcing the file if that is also desired.
+
+# Write log message to stderr.
+proc verbose { msg } {
+    puts stderr $msg
+}
+
+# A list of paths that should not be added using my-prepend-path.
+# This list is built up using calls to my-blacklist-path, which will
+# usually be in specific packages .modulerc files.
+set path_blacklist {}
+
+# Call prepend-path passing VARNAME and PATH, unless PATH has
+# previously been the subject of a call to blacklist_path, in which
+# case this call is ignored.
+proc my-prepend-path { varname path } {
+    if { [lsearch -exact $::path_blacklist $path] } {
+        prepend-path ${varname} ${path}
+
+        # This is an attempt to keep ccache at the front of my $PATH.
+        # I suspect that it may turn out that I need to check more
+        # modes than this.
+        if { $varname == "PATH" && [module-info mode] == "load" } {
+            remove-path ${varname} /usr/lib64/ccache
+            prepend-path ${varname} /usr/lib64/ccache
+        }
+    }
+}
+
+# Call append-path passing VARNAME and PATH, unless PATH has
+# previously been the subject of a call to blacklist_path, in which
+# case this call is ignored.
+proc my-append-path { varname path } {
+    if { [lsearch -exact $::path_blacklist $path] } {
+        append-path ${varname} ${path}
+    }
+}
+
+# Add PATH to the blacklist.  This ensures that any future call to
+# my-prepend-path and my-append-path with PATH will not add PATH to
+# the environment variable.
+proc my-blacklist-path { path } {
+    lappend ::path_blacklist $path
+}
+
+# Check for and source .modulerc files for PKG_DIR.
+proc source_package_modulerc { pkg_dir } {
+    foreach path [list $pkg_dir/.modulerc $pkg_dir/../.modulerc ] {
+        if { [ file readable $path ] } {
+            if { [catch "uplevel 1 source $path"] == 1 } {
+                puts stderr "ERROR: Failed to source '$path'"
+            }
+            return
+        }
+    }
+}
+
+proc basic_package_setup { } {
+    global ModulesCurrentModulefile
+
+    # Find the package directory from the module file path, the path
+    # will be:
+    #     /some-root-path/modules/package-name/version-number
+    # and we need to change this into:
+    #     /some-root-path/packages/package-name/version-number
+    set pkg_dir [ string map {/modules/ /packages/} $ModulesCurrentModulefile ]
+
+    set ver [ file tail $ModulesCurrentModulefile ]
+    set pkg [ file tail [ file dirname $ModulesCurrentModulefile ] ]
+
+    module-whatis "provides '$pkg' version '$ver'"
+
+    source_package_modulerc $pkg_dir
+
+    #
+    # General setup for all packages.
+    #
+
+    if { [ file isdirectory $pkg_dir/bin ] } {
+        my-prepend-path PATH $pkg_dir/bin
+    }
+
+    if { [ file isdirectory $pkg_dir/usr/bin ] } {
+        my-prepend-path PATH $pkg_dir/usr/bin
+    }
+
+    if { [ file isdirectory $pkg_dir/man ] } {
+        my-prepend-path MANPATH $pkg_dir/man
+    }
+
+    if { [ file isdirectory $pkg_dir/share/man ] } {
+        my-prepend-path MANPATH $pkg_dir/share/man
+    }
+
+    if { [ file isdirectory $pkg_dir/info ] } {
+        my-prepend-path INFOPATH $pkg_dir/info
+    }
+
+    if { [ file isdirectory $pkg_dir/share/info ] } {
+        my-prepend-path INFOPATH $pkg_dir/share/info
+    }
+
+    if { [ file isdirectory $pkg_dir/lib/pkgconfig ] } {
+        my-prepend-path PKG_CONFIG_PATH $pkg_dir/lib/pkgconfig
+    }
+
+    if { [ file isdirectory $pkg_dir/share/pkgconfig ] } {
+        my-prepend-path PKG_CONFIG_PATH $pkg_dir/share/pkgconfig
+    }
+
+    if { [ file isdirectory $pkg_dir/include ] } {
+        my-prepend-path CPATH $pkg_dir/include
+    }
+
+    foreach dir_prefix {lib lib64 usr/lib} {
+        foreach python_version {2.7 3.7} {
+            set dir ${pkg_dir}/${dir_prefix}/python${python_version}/site-packages
+            if { [ file isdirectory $dir ] } {
+                my-prepend-path PYTHONPATH $dir
+            }
+        }
+    }
+
+    if { [ file isdirectory $pkg_dir/lib/perl5 ] } {
+        my-prepend-path PERL5LIB $pkg_dir/lib/perl5
+    }
+
+    foreach lib_dir {lib lib64} {
+        if { [ file isdirectory $pkg_dir/${lib_dir} ] } {
+            my-prepend-path LD_LIBRARY_PATH $pkg_dir/${lib_dir}
+        }
+    }
+
+    foreach dir [glob -nocomplain -type d $pkg_dir/share/aclocal-* \
+                     $pkg_dir/share/aclocal*] {
+        my-prepend-path ACLOCAL_PATH $dir
+    }
+
+    #
+    # Package specific setup tasks.
+    #
+
+    if { $pkg == "automake" } {
+        # These paths are appended, as we only want to search these if
+        # suitable modules are not found elsewhere.
+        foreach dir [glob -nocomplain -type d /usr/share/aclocal-*] {
+            my-append-path ACLOCAL_PATH $dir
+        }
+        my-append-path ACLOCAL_PATH /usr/share/aclocal
+    }
+}
+
+proc ModulesHelp { } {
+    global ModulesCurrentModulefile
+    set ver [ file tail $ModulesCurrentModulefile ]
+    set pkg [ file tail [ file dirname $ModulesCurrentModulefile ] ]
+    set pkg_dir [ string map {/modules/ /packages/} $ModulesCurrentModulefile ]
+
+    puts stderr "This is version '$ver' of '$pkg', installed into:"
+    puts stderr "  $pkg_dir"
+}
+
+# Local Variables:
+# mode: tcl
+# End:

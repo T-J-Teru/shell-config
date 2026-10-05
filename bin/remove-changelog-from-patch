@@ -1,0 +1,156 @@
+#!/usr/bin/perl
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use warnings;
+use strict;
+
+#========================================================================#
+
+=pod
+
+=head1 NAME
+
+remove-changelog-from-patch - Remove ChangeLog blocks from a patch file.
+
+=head1 OPTIONS
+
+B<remove-changelog-from-patch> [-h|--help] FILE.patch ....
+
+=head1 SYNOPSIS
+
+When submitting patches to GNU projects, the changes to ChangeLog files
+should not be included in the patch sent to the mailing list.
+
+This script takes a list of patch files and updates each patch file in
+place, removing all ChangeLog patch blocks.
+
+=cut
+
+#========================================================================#
+
+use Pod::Usage;                 # Allow -h or --help command line options.
+use boolean;
+use File::Temp qw/tempfile/;
+use File::Copy;
+use Cwd qw/abs_path/;
+use File::Basename;
+
+#========================================================================#
+
+# Handle -h/--help directly (this tool takes only filename arguments).
+pod2usage (1) if grep { $_ eq "-h" or $_ eq "--help" } @ARGV;
+
+foreach my $filename (@ARGV)
+{
+  if (not (-r $filename))
+  {
+    print "Unable to read `$filename', skipping...\n";
+  }
+
+  print "Stripping ChangeLog differences from `$filename'...\n";
+
+  strip_changelog_from ($filename);
+}
+
+exit (0);
+
+#========================================================================#
+
+=pod
+
+=head1 METHODS
+
+The following methods are defined in this script.
+
+=over 4
+
+=cut
+
+#========================================================================#
+
+=pod
+
+=item B<filter_out_changelog>
+
+Takes two parameters, both open file handles.  The first is the input
+stream, the second is the output stream.
+
+Content is read from the input, and written to the output, except for
+content that looks like a diff block from a patch, that applies to a
+ChangeLog file.
+
+=cut
+
+sub filter_out_changelog {
+  my ($in, $out) = @_;
+
+  my $in_changelog = false;
+  while (<$in>)
+  {
+    if (m#^diff --git a.*/ChangeLog(?:\.\S+)? b.*/ChangeLog(?:\.\S+)?$#)
+    {
+      $in_changelog = true;
+    }
+    elsif (m#diff --git #)
+    {
+      $in_changelog = false;
+    }
+
+    next if ($in_changelog);
+    print $out $_;
+  }
+}
+
+#========================================================================#
+
+=pod
+
+=item B<strip_changelog_from>
+
+Take a filename as a parameter.  Filters out the ChangeLog entries from the
+file, and updates the file in place.
+
+=cut
+
+sub strip_changelog_from {
+  my $filename = shift;
+
+  my $dir = dirname (abs_path ($filename));
+  open my $in, $filename
+    or die "Failed to open `$filename': $!";
+
+  my ($out, $tempfilename) = tempfile (DIR => $dir);
+  filter_out_changelog ($in, $out);
+
+  close $out
+    or die "Failed to close `$tempfilename': $!";
+
+  close $in
+    or die "Failed to close `$filename': $!";
+
+  move ($tempfilename, $filename)
+    or die "Failed to move `$tempfilename' to `$filename'";
+}
+
+#========================================================================#
+
+=pod
+
+=back
+
+=head1 AUTHOR
+
+Andrew Burgess, 30 Mar 2016
+
+=cut

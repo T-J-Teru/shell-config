@@ -1,0 +1,5 @@
+#%Module1.0
+
+eval set  [ array get env HOME ]
+source $HOME/.software/support/module-common
+basic_package_setup

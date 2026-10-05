@@ -1,0 +1,429 @@
+#!/usr/bin/perl
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use warnings;
+use strict;
+no indirect;
+no autovivification;
+
+#========================================================================#
+
+=pod
+
+=head1 NAME
+
+module-sync - sync between modules and packages directories.
+
+=head1 OPTIONS
+
+B<module-sync> [-h|--help]
+
+=head1 SYNOPSIS
+
+Create initial modulefiles for all packages installed into the
+package/module system.
+
+The package/module system is identified by the PACKAGE_MODULE_ROOT
+environment variable.
+
+=cut
+
+#========================================================================#
+
+use Pod::Usage;                 # Allow -h or --help command line options.
+use File::Copy;
+use File::Temp qw/tempfile/;
+use Carp;
+use boolean;
+
+#========================================================================#
+
+# Handle -h/--help directly (this tool takes no options besides help).
+pod2usage (1) if grep { $_ eq "-h" or $_ eq "--help" } @ARGV;
+
+my $root = $ENV{PACKAGE_MODULE_ROOT};
+(defined $root) or
+  croak ("No PACKAGE_MODULE_ROOT set in environment");
+
+exit (sync_all_packages ($root));
+
+#========================================================================#
+
+=pod
+
+=head1 METHODS
+
+The following methods are defined in this script.
+
+=over 4
+
+=cut
+
+#========================================================================#
+
+=pod
+
+=item B<cleanup_module>
+
+Currently undocumented.
+
+=cut
+
+sub cleanup_module {
+  my $root = shift;
+  my $module = shift;
+
+  my $p_path = "$root/packages/$module";
+  my $m_path = "$root/modules/$module";
+
+  if ( not -d $p_path )
+  {
+    print "Package '$module' has been deleted, remove module directory:\n";
+    print "    $m_path/\n";
+    return;
+  }
+
+  opendir my $dh, $m_path
+    or croak ("failed to open '$m_path': $!");
+
+  while (my $ver = readdir $dh)
+  {
+    next if ($ver =~ m/^\./ and $ver ne ".version");
+
+    my $package_version;
+    if ($ver eq ".version")
+    {
+      $package_version = "default";
+    }
+    else
+    {
+      $package_version = $ver;
+    }
+
+    if (not -e "$p_path/$package_version")
+    {
+      if ($ver eq ".version")
+      {
+        print "Default removed for package $module\n";
+      }
+      else
+      {
+        print "Deleted version $ver for package $module\n";
+      }
+
+      unlink "$m_path/$ver" or
+        croak "Failed to delete '$m_path/$ver";
+    }
+  }
+
+  closedir $dh
+    or croak ("failed to close '$m_path': $!");
+}
+
+#========================================================================#
+
+=pod
+o
+=item B<cleanup_old_modules>
+
+Currently undocumented.
+
+=cut
+
+sub cleanup_old_modules {
+  my $root = shift;
+
+  my $p_path = "$root/packages";
+  my $m_path = "$root/modules";
+
+  opendir my $dh, $m_path
+    or croak ("failed to open '$m_path': $!");
+
+  while (my $m = readdir $dh)
+  {
+    next if ($m =~ m/^\./);
+    cleanup_module ($root, $m);
+  }
+
+  closedir $dh
+    or croak ("failed to close '$m_path': $!");
+}
+
+#========================================================================#
+
+=pod
+
+=item B<create_new_modules>
+
+Look through the packages, and create module files for any new
+packages, and update the default version.
+
+=cut
+
+sub create_new_modules {
+  my $root = shift;
+
+  my $p_path = "$root/packages";
+  my $m_path = "$root/modules";
+
+  opendir my $dh, $p_path
+    or croak ("failed to open '$p_path': $!");
+
+  while (my $p = readdir $dh)
+  {
+    next if ($p =~ m/^\./);
+    sync_package_versions ($root, $p);
+  }
+
+  closedir $dh
+    or croak ("failed to close '$p_path': $!");
+}
+
+#========================================================================#
+
+=pod
+
+=item B<sync_package_default>
+
+Currently undocumented.
+
+=cut
+
+sub sync_package_default {
+  my $root = shift;
+  my $package = shift;
+  my $default = shift;
+
+  my $v_file = "$root/modules/$package/.version";
+
+  if (not (-e $v_file))
+  {
+    # Create a new .version file.
+    open my $fh, ">$v_file"
+      or croak ("failed to open '$v_file' for writing: $!");
+
+    print $fh "#%"."Module1.0\n";
+    print $fh "#### START: AUTO-UPDATED-DEFAULT-VERSION ####\n";
+    print $fh "# Remove START/END markers to prevent the default\n";
+    print $fh "# from being automatically updated.\n";
+    print $fh "set ModulesVersion \"$default\"\n";
+    print $fh "#### END: AUTO-UPDATED-DEFAULT-VERSION ####\n";
+
+    close $fh
+      or croak ("failed to close '$v_file' after writing: $!");
+
+    print "Created new .version file for package $package".
+      " (default $default)\n";
+  }
+  else
+  {
+    # Create a copy of .version, possibly updating default version.
+    my $temp = File::Temp->new ();
+
+    open my $fh, $v_file
+      or croak ("failed to open '$v_file' for reading: $!");
+
+    my $in_the_zone = false;
+    my $done_update = false;
+    my $went_in_zone = false;
+    my $old_default = undef;
+    my $found_set_version_line = false;
+    while (my $line = <$fh>)
+    {
+      if ($line =~ m/^\s*set\s+ModulesVersion\s+\"([^"]+)\"/)
+      {
+        $old_default = $1;
+      }
+
+      if ($in_the_zone)
+      {
+        if ($line =~ m/^#### END: AUTO-UPDATED-DEFAULT-VERSION ####/)
+        {
+          print $temp $line;
+          $in_the_zone = false;
+        }
+        elsif ($line =~ m/^# /)
+        {
+          print $temp $line;
+        }
+        elsif ($line =~ m/^set ModulesVersion /)
+        {
+          print $temp "set ModulesVersion \"$default\"\n";
+          $done_update = true;
+        }
+        else
+        {
+          croak ("Unexpected line between START/END markers in '$v_file'");
+        }
+      }
+      else
+      {
+        print $temp $line;
+
+        if ($line =~ m/^#### START: AUTO-UPDATED-DEFAULT-VERSION ####$/)
+        {
+          $in_the_zone = true;
+          $went_in_zone = true;
+        }
+      }
+    }
+
+    close $fh
+      or croak ("failed to close '$v_file' after reading: $!");
+
+    close $temp
+      or croak ("failed to close temporary file '$temp': $!");
+
+    (not $in_the_zone)
+      or croak ("malformed file '$v_file', missing END marker");
+    if ($went_in_zone and (not $done_update))
+    {
+      croak ("failed to update default in '$v_file'");
+    }
+
+    # If we did make a change, then move new file over old one.
+    if (not $done_update)
+    {
+      unlink $temp->filename ()
+        or croak ("failed to delete '$temp': $!");
+      if (defined $old_default)
+      {
+        if ($old_default ne $default)
+        {
+          print "Default for package $package left as '$old_default'\n";
+        }
+      }
+      else
+      {
+        print "No default adjustment made to package $package\n";
+      }
+    }
+    else
+    {
+      if ((not (defined $old_default)) or ($old_default ne $default))
+      {
+        move ($temp->filename (), $v_file)
+          or croak ("failed to move '$temp' to '$v_file': $!");
+        if (defined ($old_default))
+        {
+          print "Default for package $package updated to $default".
+            " (from $old_default)\n";
+        }
+        else
+        {
+          print "Default for package $package updated to $default\n";
+        }
+      }
+    }
+  }
+}
+
+#========================================================================#
+
+=pod
+
+=item B<sync_package_versions>
+
+Take two strings, the directory where the modules and packages system is
+located, and the name of a package.
+
+Sync all versions of the named package from the packages directory to the
+modules directory, possibly creating the module directory for the package
+if needed.
+
+=cut
+
+sub sync_package_versions {
+  my $root = shift;
+  my $package = shift;
+
+  my $p_path = "$root/packages/$package";
+  my $m_path = "$root/modules/$package";
+
+  my $template = "$root/support/module-example";
+
+  if (not (-d "$m_path"))
+  {
+    print "Creating module directory for package $package\n";
+    mkdir "$m_path"
+      or croak ("failed to create '$m_path': $!");
+  }
+
+  opendir my $dh, "$p_path"
+    or croak ("failed to open '$p_path': $!");
+
+  while (my $v = readdir $dh)
+  {
+    next if ($v =~ m/^\./);
+    next unless (-d "$p_path/$v");
+
+    if ($v eq "default")
+    {
+      (-l "$p_path/$v")
+        or croak ("default version of package $package is not a symlink");
+      my $tgt = readlink "$p_path/$v"
+        or croak ("failed to read symlink '$p_path/$v': $!");
+      $tgt =~ s#/$##;
+
+      sync_package_default ($root, $package, $tgt);
+    }
+    elsif (not (-e "$m_path/$v"))
+    {
+      print "Creating modulefile for package $package, version $v\n";
+      copy ("$template", "$m_path/$v")
+        or croak ("failed to copy '$template' to '$m_path/$v': $!");
+    }
+  }
+
+  closedir $dh
+    or croak ("failed to close '$p_path': $!");
+}
+
+#========================================================================#
+
+=pod
+
+=item B<sync_all_packages>
+
+Take a string that is the root diectory for where the packages and modules
+system is located.
+
+Sync all packages into the modules directory, creating modules files as
+needed.
+
+=cut
+
+sub sync_all_packages {
+  my $root = shift;
+
+  create_new_modules ($root);
+
+  cleanup_old_modules ($root);
+
+  print "All packages synced.\n";
+
+  return 0;
+}
+
+#========================================================================#
+
+=pod
+
+=back
+
+=head1 AUTHOR
+
+Andrew Burgess, 12 Jul 2017
+
+=cut

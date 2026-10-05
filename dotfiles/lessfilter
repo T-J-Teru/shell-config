@@ -1,0 +1,41 @@
+#! /bin/sh
+
+function do_colour () {
+    infile=$1
+    lexer=$2
+
+    if [ -n "${lexer}" ]; then
+        lexer="-l $lexer"
+    fi
+
+    pygmentize ${lexer} "$1"
+    exit $?
+}
+
+case "$1" in
+    *.c|*.sh|*.cc|*.cpp|*.h|*.H|*.pl|*.py|*.R|*.patch)
+        do_colour "$1"
+        ;;
+    *.f90|*.F90|*.f)
+        do_colour "$1" "fortran"
+        ;;
+    *.exp)
+        do_colour "$1" "tcl"
+        ;;
+    ?*.*)
+        exit 1
+        ;;
+    *)
+        break
+        ;;
+esac
+
+type=$(file -b -L -i $1)
+case $type in
+    text/x-shellscript\;*|text/x-perl\;*|text/x-python\;*)
+        do_colour "$1"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
