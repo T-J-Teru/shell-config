@@ -42,6 +42,12 @@ PACKAGES=(
   # rely on comes from now (we no longer vendor a copy).
   bash-completion
 
+  # preexec/precmd hooks (zsh-style) for bash, used by the prompt to time how long
+  # commands take. The library is at /usr/libexec/bash-preexec/bash-preexec.sh;
+  # the bashrc sources it itself (we do NOT want bash-preexec-all-users, which
+  # enables it system-wide via /etc/profile.d).
+  bash-preexec
+
   # git ships git-core, which provides the prompt helper the bashrc sources:
   # /usr/share/git-core/contrib/completion/git-prompt.sh (__git_ps1).
   git
