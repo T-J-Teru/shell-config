@@ -108,8 +108,6 @@ alias tree='tree -v'
 
 alias more=less
 
-alias emacs-nw='emacs -nw'
-
 alias getmail='getmail -nl'
 alias grep='grep --color=auto -I --exclude="*~"'
 
@@ -127,7 +125,10 @@ export LESSOPEN="||/usr/bin/lesspipe.sh %s"
 
 export SHORT_HOSTNAME=$HOSTNAME
 
+# emacs-nw is a real script in ~/bin (see bin/emacs-nw), not an alias, so that
+# $EDITOR consumers (git etc.) running a non-interactive shell can find it.
 export EDITOR=emacs-nw
+
 export PAGER=less
 export CVSEDITOR=${EDITOR}
 
