@@ -65,8 +65,8 @@ PACKAGES=(
   less tree curl
 
   # dotfiles/lessfilter pipes source files through pygmentize for syntax
-  # highlighting in less (provided by python3-pygments).
-  python3-pygments
+  # highlighting in less (provided by python3-pygments), and markdown through glow.
+  python3-pygments glow
 
   # Compiler cache: the bashrc prepends /usr/lib64/ccache to PATH (and the module
   # system keeps it at the front), so install ccache to make that directory exist.

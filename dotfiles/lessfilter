@@ -13,6 +13,14 @@ function do_colour () {
 }
 
 case "$1" in
+    *.md|*.markdown)
+        # Render markdown with glow. Use an explicit style so glow emits ANSI even
+        # though its stdout is a pipe here (it suppresses colour for non-TTY output
+        # unless a style is given). Fall back to raw (exit 1) if glow isn't present.
+        command -v glow >/dev/null 2>&1 || exit 1
+        glow -s dark "$1"
+        exit $?
+        ;;
     *.c|*.sh|*.cc|*.cpp|*.h|*.H|*.pl|*.py|*.R|*.patch)
         do_colour "$1"
         ;;
