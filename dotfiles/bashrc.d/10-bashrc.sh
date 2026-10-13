@@ -859,9 +859,19 @@ function histfind ()
 
 function weather()
 {
-    # change Paris to your default location
-    local request="wttr.in/${1-52.43,0.24}"
-    [ "$(tput cols)" -lt 125 ] && request+='?n'
+    # Use a reasonable location and don't print the "follow me" line
+    # in the output.
+    local request="wttr.in/${1-52.43,0.24}?F"
+
+    # Use narrow output in narrower terminals.
+    [ "$(tput cols)" -lt 125 ] && request+='n'
+
+    # In very narrow terminals show only the current weather, this is
+    # the narrowest output format possible.  This overrides 'n' output
+    # added above.
+    [ "$(tput cols)" -lt 63 ] && request+='0'
+
+    # Grab and print the weather report.
     curl -H "Accept-Language: ${LANG%_*}" --compressed "$request"
 }
 
