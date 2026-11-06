@@ -135,7 +135,11 @@ function prj ()
     return ${status}
 }
 
-MODULEPATH=$APB_PROJECT_DIR/.modules:$MODULEPATH
+# Add this user's project modulefiles via 'module use' rather than editing
+# MODULEPATH directly: 'module use' prepends like the old code did, but also
+# skips entries already in MODULEPATH, so nested shells don't accumulate
+# duplicates.
+module use $APB_PROJECT_DIR/.modules
 
 # Local Variables:
 # mode: sh
