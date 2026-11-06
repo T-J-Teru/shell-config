@@ -137,9 +137,15 @@ create_symlinks() {
 # with matching modulefiles under ~/.software/modules/<pkg>/<ver>. The actual
 # software is machine-local (not version-controlled); just ensure the dirs exist
 # so `module use ~/.software/modules` (from ~/.modulerc) has somewhere to look.
+#
+# A few modulefiles are placed directly into ~/.modules/<pkg>/<ver> these
+# are modulefiles that are written by hand.  Again the contents of this
+# directory are not version controlled, we just create the directory here so
+# they can be referenced by config files.
 create_module_dirs() {
   echo ">> Ensuring module directories exist..."
   mkdir -p "$HOME/.software/modules" "$HOME/.software/packages"
+  mkdir -p "$HOME/.modules"
 }
 
 #-----------------------------------------------------------------------------#

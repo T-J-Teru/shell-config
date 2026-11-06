@@ -13,3 +13,4 @@ if { [ info exists env(PACKAGE_MODULE_ROOT) ] } then {
     module use $HOME/.software/modules
 }
 
+module use $HOME/.modules
