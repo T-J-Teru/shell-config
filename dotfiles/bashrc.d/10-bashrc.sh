@@ -38,33 +38,43 @@ export PYTHONUSERBASE=$HOME/.python
 #=======================================#
 
 export PACKAGE_MODULE_ROOT=$HOME/.software
-MODULES_ROOT_DIRECTORY=${PACKAGE_MODULE_ROOT}/modules
-if [ -d "${MODULES_ROOT_DIRECTORY}" ]
-then
-    DEFAULT_MODULE_LIST=""
-    for versionfile in `find ${MODULES_ROOT_DIRECTORY} -name ".version" 2>/dev/null`
-    do
-        dir=`dirname $versionfile`
-        modulename=`basename $dir`
-        DEFAULT_MODULE_LIST="${DEFAULT_MODULE_LIST} ${modulename}"
-    done
-    # Not sure this 'purge' is a good idea.  This removes all loaded
-    # modules so that the following load will result in a clean (just
-    # the defaults) loaded in each new shell.  The problem is that if
-    # I start a new termainl/shell from within an existing
-    # terminal/shell then I'd probably expect the current state to
-    # carry over.
-    #
-    # However, I added this because the session shell also picks up
-    # the defaults at the point in time I start my session, then every
-    # shell after that keeps the same defaults.  If I then change the
-    # default for a particular package that default is loaded as well
-    # as the original default.
-    module purge
-    module -s load ${DEFAULT_MODULE_LIST} &>/dev/null
-else
-    echo "No modules directory: ${MODULES_ROOT_DIRECTORY}"
-fi
+
+# Build the list of default modules from the .version files found in the
+# MODULEPATH components.  Only components under $HOME are considered: those
+# are this user's module trees, whereas system trees (/etc/modulefiles,
+# /usr/share/modulefiles) are not ours to scan.
+DEFAULT_MODULE_LIST=""
+IFS=: read -ra modpath_dirs <<< "${MODULEPATH}"
+for moddir in "${modpath_dirs[@]}"
+do
+    case ${moddir} in
+        ${HOME}/*)
+            if [ -d "${moddir}" ]
+            then
+                for versionfile in `find ${moddir} -name ".version" 2>/dev/null`
+                do
+                    dir=`dirname $versionfile`
+                    modulename=`basename $dir`
+                    DEFAULT_MODULE_LIST="${DEFAULT_MODULE_LIST} ${modulename}"
+                done
+            fi
+            ;;
+    esac
+done
+# Not sure this 'purge' is a good idea.  This removes all loaded
+# modules so that the following load will result in a clean (just
+# the defaults) loaded in each new shell.  The problem is that if
+# I start a new termainl/shell from within an existing
+# terminal/shell then I'd probably expect the current state to
+# carry over.
+#
+# However, I added this because the session shell also picks up
+# the defaults at the point in time I start my session, then every
+# shell after that keeps the same defaults.  If I then change the
+# default for a particular package that default is loaded as well
+# as the original default.
+module purge
+module -s load ${DEFAULT_MODULE_LIST} &>/dev/null
 
 #=====================================#
 #     Check for interactive shell     #
