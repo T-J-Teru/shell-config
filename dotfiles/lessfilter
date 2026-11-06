@@ -6,6 +6,10 @@ function do_colour () {
 
     if [ -n "${lexer}" ]; then
         lexer="-l $lexer"
+    else
+        # No explicit lexer: guess from file contents (e.g. the shebang) rather
+        # than the filename, which fails for extensionless scripts.
+        lexer="-g"
     fi
 
     pygmentize ${lexer} "$1"
