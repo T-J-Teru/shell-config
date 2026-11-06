@@ -12,7 +12,9 @@ function do_colour () {
         lexer="-g"
     fi
 
-    pygmentize ${lexer} "$1"
+    # native is a dark-background style; the default style's variables are a
+    # near-black navy that is unreadable on a dark terminal.
+    pygmentize -O style=native ${lexer} "$1"
     exit $?
 }
 
